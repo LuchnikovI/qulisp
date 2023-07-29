@@ -1,11 +1,18 @@
 use std::fmt::Display;
 
+/// Errors that may appear during grammar code snippets invocation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QLispParseError {
+
+    /// Appears when one cannot parse a given int in code into rust i64
     CannotParseInt(usize, usize),
+
+    /// Appears when one cannot parse a given float in code into rust f64
     CannotParseFloat(usize, usize),
 }
 
+
+/// quantum-lisp keywords
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyWord {
     Define,
@@ -27,6 +34,7 @@ impl Display for KeyWord {
     }
 }
 
+/// quantum-lisp atomic objects
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Atom<'code> {
     Int(i64),
@@ -46,6 +54,7 @@ impl<'code> Display for Atom<'code> {
     }
 }
 
+/// quantum-lisp s-expression
 #[derive(Debug, Clone, PartialEq)]
 pub enum SExpr<'code> {
     List(Vec<SExpr<'code>>),
@@ -82,6 +91,8 @@ impl<'code> Display for SExpr<'code> {
         }
     }
 }
+
+// ----------------------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
