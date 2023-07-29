@@ -1,0 +1,55 @@
+use std::str::FromStr;
+use lalrpop_util::ParseError;
+use crate::ast::{Atom, KeyWord, SExpr, QLispParseError};
+
+grammar;
+
+extern {
+    type Error = QLispParseError;
+}
+
+match {
+    r"\(" => LPAREN,
+    r"\)" => RPAREN,
+    r"\." => DOT,
+    r"[1-9]+[0-9]*|0" => INT,
+    r"([0-9]+\.[0-9]*|[0-9]*\.[0-9]+)([eE][-+]?[0-9]+)?" => FLOAT,
+    r"define" => DEFINE,
+    r"if" => IF,
+    r"let" => LET,
+    r"cond" => COND,
+    r"lambda" => LAMBDA,
+    r"\s*" => { },
+    r";[^\n\r]*[\n\r]*" => { },
+} else {
+    r"[^[:space:]\(\)]+" => ID,
+}
+
+Atom: Atom<'input> = {
+    <l:@L><i:INT><r:@R> =>? Ok(Atom::Int(i64::from_str(i).map_err(
+        |_| ParseError::User {
+            error: QLispParseError::CannotParseInt(l, r)
+        }
+    )?)),
+    <l:@L><f:FLOAT><r:@R> =>? Ok(Atom::Float(f64::from_str(f).map_err(
+        |_| ParseError::User {
+            error: QLispParseError::CannotParseFloat(l, r)
+        }
+    )?)),
+    DEFINE => Atom::KeyWord(KeyWord::Define),
+    IF => Atom::KeyWord(KeyWord::If),
+    LET => Atom::KeyWord(KeyWord::Let),
+    COND => Atom::KeyWord(KeyWord::Cond),
+    LAMBDA => Atom::KeyWord(KeyWord::Lambda),
+    ID => Atom::Symbol(<>),
+};
+
+SExpr: SExpr<'input> = {
+    LPAREN <s1:SExpr> DOT <s2:SExpr> RPAREN => SExpr::Pair(Box::new(s1), Box::new(s2)),
+    Atom => SExpr::Atom(<>),
+    LPAREN <sexprs:SExpr*> RPAREN => SExpr::List(sexprs.into_iter().collect::<Vec<_>>()),
+}
+
+pub Program: Vec<SExpr<'input>> = {
+    <sexprs:SExpr*> => sexprs.into_iter().collect::<Vec<_>>(),
+}

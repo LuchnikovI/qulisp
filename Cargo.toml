@@ -1,0 +1,13 @@
+[package]
+name = "quantum-lisp"
+authors = ["ilia luchnikov"]
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[dependencies]
+lalrpop-util = { version = "0.20.0", features = ["lexer", "unicode"] }
+anyhow = "1.0.72"
+
+[build-dependencies]
+lalrpop = "0.20.0"
