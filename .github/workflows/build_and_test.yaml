@@ -1,0 +1,8 @@
+name: build and test
+run-name: ${{ github.actor }} build and tests qulisp
+on: [push]
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: ./ci/build_and_test.sh

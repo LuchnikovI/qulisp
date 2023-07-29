@@ -341,7 +341,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "quantum-lisp"
+name = "qulisp"
 version = "0.1.0"
 dependencies = [
  "anyhow",
