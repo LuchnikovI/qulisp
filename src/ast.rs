@@ -12,7 +12,7 @@ pub enum QLispParseError {
 }
 
 
-/// quantum-lisp keywords
+/// qulisp keywords
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyWord {
     Define,
@@ -34,7 +34,7 @@ impl Display for KeyWord {
     }
 }
 
-/// quantum-lisp atomic objects
+/// qulisp atomic objects
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Atom<'code> {
     Int(i64),
@@ -54,7 +54,7 @@ impl<'code> Display for Atom<'code> {
     }
 }
 
-/// quantum-lisp s-expression
+/// qulisp s-expression
 #[derive(Debug, Clone, PartialEq)]
 pub enum SExpr<'code> {
     List(Vec<SExpr<'code>>),
@@ -98,7 +98,6 @@ impl<'code> Display for SExpr<'code> {
 mod tests {
     use lalrpop_util::ParseError;
     use crate::grammar::ProgramParser;
-    use std::str::from_utf8;
 
     #[test]
     fn test_define_fn_ast()
@@ -167,7 +166,7 @@ mod tests {
                     super::QLispParseError::CannotParseInt(start, end) => {
                         assert_eq!(
                             "400000000000000000000000000000000000000000000000000000",
-                            from_utf8(&code.as_bytes()[start..end]).unwrap(),
+                            &code[start..end],
                         );
                     },
                     other => panic!(
