@@ -217,29 +217,20 @@ impl<'code> Display for SExpr {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::read_to_string;
-    use std::path::{Path, PathBuf};
-    use std::env;
-    use lazy_static::lazy_static;
     use lalrpop_util::ParseError;
     use crate::ast::get_symbol;
     use crate::grammar::ProgramParser;
-
+    use crate::qulisp_code_snippets::{
+        SUM_OF_SQUARES,
+        PRINT_MSG,
+        TOO_BIG_INT,
+    };
     use super::SExpr;
-
-    lazy_static! {
-        static ref TEST_CODE_SNIPPETS_PATH: PathBuf = {
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("src")
-                .join("test_code_snippets")
-        };
-    }
 
     #[test]
     fn test_define_fn_ast()
     {
-        let code = read_to_string(TEST_CODE_SNIPPETS_PATH.join("sum_of_squares.ql")).unwrap();
-        let ast = ProgramParser::new().parse(&code).unwrap();
+        let ast = ProgramParser::new().parse(SUM_OF_SQUARES).unwrap();
         let correct_ast: Vec<SExpr> = vec![
             vec![
                 get_symbol("define"),
@@ -278,8 +269,7 @@ mod tests {
     #[test]
     fn test_print_many_strings()
     {
-        let code = read_to_string(TEST_CODE_SNIPPETS_PATH.join("print_msg.ql")).unwrap();
-        let ast = ProgramParser::new().parse(&code).unwrap();
+        let ast = ProgramParser::new().parse(PRINT_MSG).unwrap();
         let correct_ast: Vec<SExpr> = vec![
             vec![
                 get_symbol("define"),
@@ -312,15 +302,14 @@ mod tests {
     #[test]
     fn test_to_big_number_ast()
     {
-        let code = read_to_string(TEST_CODE_SNIPPETS_PATH.join("too_big_int.ql")).unwrap();
-        let ast = ProgramParser::new().parse(&code);
+        let ast = ProgramParser::new().parse(TOO_BIG_INT);
         match ast.unwrap_err() {
             ParseError::User { error } => {
                 match error {
                     super::QLispParseError::CannotParseInt(start, end) => {
                         assert_eq!(
                             "400000000000000000000000000000000000000000000000000000000000",
-                            &code[start..end],
+                            &TOO_BIG_INT[start..end],
                         );
                     },
                     other => panic!(

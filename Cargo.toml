@@ -9,9 +9,6 @@ build = "build.rs"
 lalrpop-util = { version = "0.20.0", features = ["lexer", "unicode"] }
 anyhow = "1.0.72"
 
-[dev-dependencies]
-lazy_static = "1.4.0"
-
 [build-dependencies]
 lalrpop = "0.20.0"
 
