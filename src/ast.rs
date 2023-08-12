@@ -1,3 +1,4 @@
+use std::rc::Rc;
 use std::fmt::Display;
 use std::ops::{Deref, DerefMut};
 
@@ -32,15 +33,12 @@ impl DerefMut for Symbol {
     }
 }
 
-impl From<String> for Symbol {
-    fn from(value: String) -> Self {
-        Symbol(value)
-    }
-}
-
-impl From<&str> for Symbol {
-    fn from(value: &str) -> Self {
-        Symbol(value.to_owned())
+impl<S> From<S> for Symbol
+where
+    S: AsRef<str>
+{
+    fn from(value: S) -> Self {
+        Symbol(value.as_ref().to_owned())
     }
 }
 
@@ -113,26 +111,28 @@ fn get_symbol(value: &str) -> SExpr
 /// qulisp s-expression
 #[derive(Debug, Clone)]
 pub enum SExpr {
-    List(Vec<SExpr>, usize, usize),
+    List(Vec<Rc<SExpr>>, usize, usize),
     Atom(Atom, usize, usize),
-    Pair(Box<SExpr>, Box<SExpr>, usize, usize),
+    Pair(Rc<SExpr>, Rc<SExpr>, usize, usize),
 }
 
 impl From<Vec<SExpr>> for SExpr {
     fn from(value: Vec<SExpr>) -> Self {
+        let value = value.into_iter().map(|x| Rc::new(x)).collect();
         SExpr::List(value, 0, 0)
     }
 }
 
 impl From<&[SExpr]> for SExpr {
     fn from(value: &[SExpr]) -> Self {
-        SExpr::List(value.to_owned(), 0, 0)
+        let value = value.into_iter().map(|x| Rc::new(x.clone())).collect();
+        SExpr::List(value, 0, 0)
     }
 }
 
 impl From<(SExpr, SExpr)> for SExpr {
     fn from(value: (SExpr, SExpr)) -> Self {
-        SExpr::Pair(Box::new(value.0), Box::new(value.1), 0, 0)
+        SExpr::Pair(Rc::new(value.0), Rc::new(value.1), 0, 0)
     }
 }
 
@@ -217,6 +217,7 @@ impl<'code> Display for SExpr {
 
 #[cfg(test)]
 mod tests {
+    use std::rc::Rc;
     use lalrpop_util::ParseError;
     use crate::ast::get_symbol;
     use crate::grammar::ProgramParser;
@@ -224,6 +225,7 @@ mod tests {
         SUM_OF_SQUARES,
         PRINT_MSG,
         TOO_BIG_INT,
+        PRINT_QUOTED,
     };
     use super::SExpr;
 
@@ -231,8 +233,8 @@ mod tests {
     fn test_define_fn_ast()
     {
         let ast = ProgramParser::new().parse(SUM_OF_SQUARES).unwrap();
-        let correct_ast: Vec<SExpr> = vec![
-            vec![
+        let correct_ast: Vec<Rc<SExpr>> = vec![
+            Rc::new(vec![
                 get_symbol("define"),
                 vec![
                     get_symbol("square"),
@@ -243,8 +245,8 @@ mod tests {
                     get_symbol("x"),
                     get_symbol("x"),
                 ].into(),
-            ].into(),
-            vec![
+            ].into()),
+            Rc::new(vec![
                 get_symbol("define"),
                 vec![
                     get_symbol("sum-of-squares"),
@@ -256,13 +258,13 @@ mod tests {
                     vec![get_symbol("square"), get_symbol("x")].into(),
                     vec![get_symbol("square"), get_symbol("y")].into(),
                 ].into()
-            ].into(),
-            vec![
+            ].into()),
+            Rc::new(vec![
                 get_symbol("sum-of-squares"),
                 0.00314f64.into(),
                 40i64.into(),
-            ].into(),
-        ].into();
+            ].into()),
+        ];
         assert_eq!(ast, correct_ast);
     }
 
@@ -270,8 +272,8 @@ mod tests {
     fn test_print_many_strings()
     {
         let ast = ProgramParser::new().parse(PRINT_MSG).unwrap();
-        let correct_ast: Vec<SExpr> = vec![
-            vec![
+        let correct_ast: Vec<Rc<SExpr>> = vec![
+            Rc::new(vec![
                 get_symbol("define"),
                 get_symbol("print_msg"),
                 vec![
@@ -288,13 +290,13 @@ mod tests {
                     " : ".into(),
                     get_symbol("msg"),
                 ].into(),
-            ].into(),
-            vec![
+            ].into()),
+            Rc::new(vec![
                 get_symbol("print_msg"),
                 "hello world".into(),
                 "me".into(),
                 "you".into(),
-            ].into(),
+            ].into()),
         ];
         assert_eq!(ast, correct_ast);
     }
@@ -320,5 +322,12 @@ mod tests {
             },
             other => panic!("Incorrect ParseError variant, must be User, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_print_quoted()
+    {
+        let ast = ProgramParser::new().parse(PRINT_QUOTED);
+        assert_eq!("(print (quote (* 42 24)))", format!("{}", ast.unwrap()[0]));
     }
 }

@@ -27,3 +27,7 @@ pub const PRINT_MSG: &str = "
 
     (print_msg \"hello world\" \"me\" \"you\")
 ";
+
+pub const PRINT_QUOTED: &str = "
+    (print `(* 42 24))
+";
