@@ -1,0 +1,14 @@
+pub const TRUE: &'static str = "true";
+pub const NIL: &'static str = "nil";
+pub const DEF: &'static str = "define";
+pub const IF: &'static str = "if";
+pub const ELSE: &'static str = "else";
+pub const LMBD: &'static str = "lambda";
+pub const ASSIGN: &'static str = "set!";
+pub const COND: &'static str = "cond";
+pub const LET: &'static str = "let";
+pub const QUOTE: &'static str = "quote";
+pub const BEGIN: &'static str = "begin";
+pub const CONS: &'static str = "cons";
+pub const CAR: &'static str = "car";
+pub const CDR: &'static str = "cdr";

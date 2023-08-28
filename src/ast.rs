@@ -1,11 +1,12 @@
 use std::rc::Rc;
 use std::fmt::Display;
-use std::ops::{Deref, DerefMut};
+use crate::builtins::{TRUE, NIL};
+use crate::environment::Environment;
 
 // --------------------------------------------------------------------------------------------
 
 /// Errors that may appear during grammar code snippets invocation
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum QLispParseError {
 
     /// Appears when one cannot parse a given int in code into rust i64
@@ -17,34 +18,18 @@ pub enum QLispParseError {
 
 // --------------------------------------------------------------------------------------------
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Symbol(pub String);
-
-impl Deref for Symbol {
-    type Target = str;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+/// Exception structure to keep errors during interpretation (it is also s-exper)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Exception {
+    msg: String,
+    frames: Vec<(usize, usize)>,
 }
 
-impl DerefMut for Symbol {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl<S> From<S> for Symbol
-where
-    S: AsRef<str>
-{
-    fn from(value: S) -> Self {
-        Symbol(value.as_ref().to_owned())
-    }
-}
-
-impl Display for Symbol {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+impl Exception {
+    pub fn new(msg: String) -> Self {
+        Self {
+            msg, frames: vec![],
+        }
     }
 }
 
@@ -52,121 +37,127 @@ impl Display for Symbol {
 
 /// qulisp atomic objects
 #[derive(Debug, Clone, PartialEq)]
-pub enum Atom {
+pub enum Atom<'code> {
     Int(i64),
     Float(f64),
     String(String),
-    Symbol(Symbol),
+    Symbol(&'code str),
+    True,
+    Nil,
 }
 
-impl From<Symbol> for Atom {
-    fn from(value: Symbol) -> Self {
-        Atom::Symbol(value)
-    }
-}
-
-impl From<i64> for Atom {
+impl<'code> From<i64> for Atom<'code> {
     fn from(value: i64) -> Self {
         Atom::Int(value)
     }
 }
 
-impl From<f64> for Atom {
+impl<'code> From<f64> for Atom<'code> {
     fn from(value: f64) -> Self {
         Atom::Float(value)
     }
 }
 
-impl From<String> for Atom {
+impl<'code> From<String> for Atom<'code> {
     fn from(value: String) -> Self {
         Atom::String(value)
     }
 }
 
-impl From<&str> for Atom {
-    fn from(value: &str) -> Self {
-        Atom::String(value.to_owned())
+impl<'code> From<&'code str> for Atom<'code> {
+    fn from(value: &'code str) -> Self {
+        Atom::Symbol(value)
     }
 }
 
-impl Display for Atom {
+impl<'code> Display for Atom<'code> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Atom::Int(val) => write!(f, "{}", val),
             Atom::Float(val) => write!(f, "{}", val),
             Atom::String(s) => write!(f, "\"{}\"", s),
-            Atom::Symbol(name) => write!(f, "{}", name),
+            Atom::Symbol(name) => write!(f, "{}", *name),
+            Atom::True => write!(f, "{TRUE}"),
+            Atom::Nil => write!(f, "{NIL}"),
         }
     }
 }
 
 // --------------------------------------------------------------------------------------------
 
-// for testing
-fn get_symbol(value: &str) -> SExpr
-{
-    SExpr::Atom(Atom::Symbol(value.into()), 0, 0)
-}
-
 /// qulisp s-expression
 #[derive(Debug, Clone)]
-pub enum SExpr {
-    List(Vec<Rc<SExpr>>, usize, usize),
-    Atom(Atom, usize, usize),
-    Pair(Rc<SExpr>, Rc<SExpr>, usize, usize),
+pub enum SExpr<'code> {
+    List(Vec<Rc<SExpr<'code>>>, Option<(usize, usize)>),
+    Pair(Rc<SExpr<'code>>, Rc<SExpr<'code>>, Option<(usize, usize)>),
+    Atom(Atom<'code>, Option<(usize, usize)>),
+    Environment(Rc<Environment<'code>>),
+    Exception(Exception),
 }
 
-impl From<Vec<SExpr>> for SExpr {
-    fn from(value: Vec<SExpr>) -> Self {
+impl<'code> From<Atom<'code>> for SExpr<'code> {
+    fn from(value: Atom<'code>) -> Self {
+        SExpr::Atom(value, None)
+    }
+}
+
+impl<'code> From<Vec<SExpr<'code>>> for SExpr<'code> {
+    fn from(value: Vec<SExpr<'code>>) -> Self {
         let value = value.into_iter().map(|x| Rc::new(x)).collect();
-        SExpr::List(value, 0, 0)
+        SExpr::List(value, None)
     }
 }
 
-impl From<&[SExpr]> for SExpr {
-    fn from(value: &[SExpr]) -> Self {
+impl<'code> From<&[SExpr<'code>]> for SExpr<'code> {
+    fn from(value: &[SExpr<'code>]) -> Self {
         let value = value.into_iter().map(|x| Rc::new(x.clone())).collect();
-        SExpr::List(value, 0, 0)
+        SExpr::List(value, None)
     }
 }
 
-impl From<(SExpr, SExpr)> for SExpr {
-    fn from(value: (SExpr, SExpr)) -> Self {
-        SExpr::Pair(Rc::new(value.0), Rc::new(value.1), 0, 0)
+impl<'code> From<(SExpr<'code>, SExpr<'code>)> for SExpr<'code> {
+    fn from(value: (SExpr<'code>, SExpr<'code>)) -> Self {
+        SExpr::Pair(Rc::new(value.0), Rc::new(value.1), None)
     }
 }
 
-impl From<i64> for SExpr {
+impl<'code> From<i64> for SExpr<'code> {
     fn from(value: i64) -> Self {
-        SExpr::Atom(Atom::Int(value), 0, 0)
+        Atom::Int(value).into()
     }
 }
 
-impl From<f64> for SExpr {
+impl<'code> From<f64> for SExpr<'code> {
     fn from(value: f64) -> Self {
-        SExpr::Atom(Atom::Float(value), 0, 0)
+        Atom::Float(value).into()
     }
 }
 
-impl From<String> for SExpr {
+impl<'code> From<String> for SExpr<'code> {
     fn from(value: String) -> Self {
-        SExpr::Atom(Atom::String(value), 0, 0)
+        Atom::String(value).into()
     }
 }
 
-impl From<&str> for SExpr {
-    fn from(value: &str) -> Self {
-        SExpr::Atom(Atom::String(value.to_owned()), 0, 0)
+impl<'code> From<&'code str> for SExpr<'code> {
+    fn from(value: &'code str) -> Self {
+        Atom::Symbol(value).into()
     }
 }
 
-impl From<Symbol> for SExpr {
-    fn from(value: Symbol) -> Self {
-        SExpr::Atom(Atom::Symbol(value), 0, 0)
+impl<'code> From<Exception> for SExpr<'code> {
+    fn from(value: Exception) -> Self {
+        SExpr::Exception(value)
     }
 }
 
-impl PartialEq for SExpr {
+impl<'code> From<Rc<Environment<'code>>> for SExpr<'code> {
+    fn from(value: Rc<Environment<'code>>) -> Self {
+        SExpr::Environment(value)
+    }
+}
+
+impl<'code> PartialEq for SExpr<'code> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (SExpr::List(lhs, ..), SExpr::List(rhs, ..)) => {
@@ -178,12 +169,19 @@ impl PartialEq for SExpr {
             (SExpr::Pair(lhs_a, lhs_b, ..), SExpr::Pair(rhs_a,rhs_b, ..)) => {
                 (lhs_a == rhs_a) && (lhs_b == rhs_b)
             },
+            (SExpr::Exception(lhs), SExpr::Exception(rhs)) => {
+                lhs == rhs
+            }
+            // Do not take into account environments in order not to fall into infinite recursion
+            (SExpr::Environment(_), SExpr::Environment(_)) => {
+                true
+            }
             _ => false,
         }
     }
 }
 
-impl<'code> Display for SExpr {
+impl<'code> Display for SExpr<'code> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SExpr::Atom(atom, ..) => write!(f, "{}", atom),
@@ -209,6 +207,8 @@ impl<'code> Display for SExpr {
                 Ok(())
             },
             SExpr::Pair(lhs, rhs, ..) => write!(f, "({} . {})", lhs, rhs),
+            SExpr::Environment(env) => todo!(),
+            SExpr::Exception(exc) => todo!(),
         }
     }
 }
@@ -219,7 +219,6 @@ impl<'code> Display for SExpr {
 mod tests {
     use std::rc::Rc;
     use lalrpop_util::ParseError;
-    use crate::ast::get_symbol;
     use crate::grammar::ProgramParser;
     use crate::qulisp_code_snippets::{
         SUM_OF_SQUARES,
@@ -235,32 +234,32 @@ mod tests {
         let ast = ProgramParser::new().parse(SUM_OF_SQUARES).unwrap();
         let correct_ast: Vec<Rc<SExpr>> = vec![
             Rc::new(vec![
-                get_symbol("define"),
+                "define".into(),
                 vec![
-                    get_symbol("square"),
-                    get_symbol("x"),
+                    "square".into(),
+                    "x".into(),
                 ].into(),
                 vec![
-                    get_symbol("*"),
-                    get_symbol("x"),
-                    get_symbol("x"),
+                    "*".into(),
+                    "x".into(),
+                    "x".into(),
                 ].into(),
             ].into()),
             Rc::new(vec![
-                get_symbol("define"),
+                "define".into(),
                 vec![
-                    get_symbol("sum-of-squares"),
-                    get_symbol("x"),
-                    get_symbol("y"),
+                    "sum-of-squares".into(),
+                    "x".into(),
+                    "y".into(),
                 ].into(),
                 vec![
-                    get_symbol("+"),
-                    vec![get_symbol("square"), get_symbol("x")].into(),
-                    vec![get_symbol("square"), get_symbol("y")].into(),
+                    "+".into(),
+                    vec!["square".into(), "x".into()].into(),
+                    vec!["square".into(), "y".into()].into(),
                 ].into()
             ].into()),
             Rc::new(vec![
-                get_symbol("sum-of-squares"),
+                "sum-of-squares".into(),
                 0.00314f64.into(),
                 40i64.into(),
             ].into()),
@@ -274,28 +273,28 @@ mod tests {
         let ast = ProgramParser::new().parse(PRINT_MSG).unwrap();
         let correct_ast: Vec<Rc<SExpr>> = vec![
             Rc::new(vec![
-                get_symbol("define"),
-                get_symbol("print_msg"),
+                "define".into(),
+                "print_msg".into(),
                 vec![
-                    get_symbol("msg"),
-                    get_symbol("src"),
-                    get_symbol("dst"),
+                    "msg".into(),
+                    "src".into(),
+                    "dst".into(),
                 ].into(),
                 vec![
-                    get_symbol("print"),
-                    "Message from ".into(),
-                    get_symbol("src"),
-                    " to ".into(),
-                    get_symbol("dst"),
-                    " : ".into(),
-                    get_symbol("msg"),
+                    "print".into(),
+                    "Message from ".to_string().into(),
+                    "src".into(),
+                    " to ".to_string().into(),
+                    "dst".into(),
+                    " : ".to_string().into(),
+                    "msg".into(),
                 ].into(),
             ].into()),
             Rc::new(vec![
-                get_symbol("print_msg"),
-                "hello world".into(),
-                "me".into(),
-                "you".into(),
+                "print_msg".into(),
+                "hello world".to_string().into(),
+                "me".to_string().into(),
+                "you".to_string().into(),
             ].into()),
         ];
         assert_eq!(ast, correct_ast);

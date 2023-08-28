@@ -1,118 +1,95 @@
 use std::collections::HashMap;
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 use std::cell::RefCell;
 use std::iter::IntoIterator;
-use crate::ast::SExpr;
+use crate::ast::{SExpr, Exception, Atom};
 
 // ------------------------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EnvError<'sexpr> {
-    UnbindVariable(&'sexpr str)
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Environment<'code> {
+    bindings: RefCell<HashMap<&'code str, Rc<SExpr<'code>>>>,
+    parent: Option<Rc<Environment<'code>>>,
 }
 
-type EnvResult<'sexpr, T> = Result<T, EnvError<'sexpr>>;
+impl<'code> Environment<'code> {
 
-// ------------------------------------------------------------------------------------------
-
-#[derive(Debug, Clone)]
-enum Variable<'sexpr> {
-    SExpr(Rc<SExpr>),
-    Lambda(&'sexpr [String], Rc<SExpr>, Weak<Frame<'sexpr>>),
-}
-
-impl<'sexpr> From<Rc<SExpr>> for Variable<'sexpr> {
-    fn from(value: Rc<SExpr>) -> Self {
-        Variable::SExpr(value)
-    }
-}
-
-// ------------------------------------------------------------------------------------------
-
-#[derive(Debug, Default, Clone)]
-pub(super) struct Frame<'sexpr> {
-    bindings: RefCell<HashMap<&'sexpr str, Variable<'sexpr>>>,
-    parent: Option<Rc<Frame<'sexpr>>>,
-}
-
-impl<'sexpr> Frame<'sexpr> {
-
-    fn new<N, V>(
-        names: N,
+    pub(super) fn new<N, V>(
+        symbols: N,
         values: V,
-    ) -> Rc<Frame<'sexpr>>
+    ) -> Rc<Environment<'code>>
     where
-        N: IntoIterator<Item = &'sexpr str>,
-        V: IntoIterator<Item = Variable<'sexpr>>,
+        N: IntoIterator<Item = &'code str>,
+        V: IntoIterator<Item = Rc<SExpr<'code>>>,
     {
-        let bindings: HashMap<_, _> = names
+        let bindings: HashMap<_, _> = symbols
             .into_iter()
             .zip(values.into_iter())
             .collect();
-        Rc::new(Frame {bindings: RefCell::new(bindings), parent: None})
+        Rc::new(Environment {bindings: RefCell::new(bindings), parent: None})
     }
 
-    fn lookup(
-        mut frame: Rc<Frame<'sexpr>>,
-        name: &'sexpr str
-    ) -> EnvResult<'sexpr, Variable<'sexpr>>
+    pub(super) fn lookup(
+        mut environment: Rc<Environment<'code>>,
+        symbol: &'code str,
+    ) -> Rc<SExpr<'code>>
     {
         loop {
-            if let Some(var) = frame.bindings.borrow().get(name) {
-                return Ok(var.clone());
+            if let Some(var) = environment.bindings.borrow().get(symbol) {
+                return var.clone()
             }
-            let parent = if let Some(parent) = &frame.parent {
+            let parent = if let Some(parent) = &environment.parent {
                 parent.clone()
             } else {
-                return Err(EnvError::UnbindVariable(name));
+                return Rc::new(SExpr::Exception(Exception::new(format!("Symbol '{symbol}' is unbind"))))
             };
-            frame = parent;
+            environment = parent;
         }
     }
 
-    fn extend<N, V>(
-        frame: Rc<Frame<'sexpr>>,
-        names: N,
+    pub(super) fn extend<N, V>(
+        environment: Rc<Environment<'code>>,
+        symbols: N,
         values: V,
-    ) -> Rc<Frame<'sexpr>>
+    ) -> Rc<Environment>
     where
-        N: IntoIterator<Item = &'sexpr str>,
-        V: IntoIterator<Item = Variable<'sexpr>>,
+        N: IntoIterator<Item = &'code str>,
+        V: IntoIterator<Item = Rc<SExpr<'code>>>,
     {
-        let bindings: HashMap<_, _> = names
+        let bindings: HashMap<_, _> = symbols
             .into_iter()
             .zip(values.into_iter())
             .collect();
-        let new_frame = Frame { bindings: RefCell::new(bindings), parent: Some(frame) };
-        Rc::new(new_frame)
+        let new_environment = Environment { bindings: RefCell::new(bindings), parent: Some(environment) };
+        Rc::new(new_environment)
     }
 
-    fn bind(
-        frame: Rc<Frame<'sexpr>>,
-        name: &'sexpr str,
-        value: Variable<'sexpr>,
+    pub(super) fn bind(
+        environment: Rc<Environment<'code>>,
+        symbol: &'code str,
+        value: Rc<SExpr<'code>>,
     )
     {
-        frame.bindings.borrow_mut().insert(name, value);
+        environment.bindings.borrow_mut().insert(symbol, value);
     }
 
-    fn set(
-        mut frame: Rc<Frame<'sexpr>>,
-        name: &'sexpr str,
-        value: Variable<'sexpr>,
-    ) -> EnvResult<'sexpr, ()>
+    pub(super) fn set(
+        mut environment: Rc<Environment<'code>>,
+        symbol: &'code str,
+        value: Rc<SExpr<'code>>,
+    ) -> Rc<SExpr<'code>>
     {
         loop {
-            if let Some(var) = frame.bindings.borrow_mut().get_mut(name) {
+            if let Some(var) = environment.bindings.borrow_mut().get_mut(symbol) {
                 *var = value;
-                return Ok(());
+                return Rc::new(Atom::Nil.into());
             }
-            let parent = if let Some(parent) = &frame.parent {
+            let parent = if let Some(parent) = &environment.parent {
                 parent.clone()
             } else {
-                return Err(EnvError::UnbindVariable(name));
+                return Rc::new(SExpr::Exception(Exception::new(format!("Symbol '{symbol}' is unbind"))));
             };
-            frame = parent;
+            environment = parent;
         }
     }
 }
@@ -121,18 +98,16 @@ impl<'sexpr> Frame<'sexpr> {
 
 #[cfg(test)]
 mod tests {
-    use std::rc::{Rc, Weak};
+    use std::rc::Rc;
     use crate::{
-        ast::{SExpr, Atom},
-        environment::{EnvError, Variable},
-        grammar::ProgramParser
+        ast::{SExpr, Atom, Exception},
     };
-    use super::Frame;
+    use super::Environment;
 
     #[test]
     fn test_small_branching_environment()
     {
-        let frame = Frame::new(
+        let environment = Environment::new(
             ["x", "foo", "bar"],
             [
                 Rc::<SExpr>::new(1i64.into()).into(),
@@ -140,56 +115,36 @@ mod tests {
                 Rc::<SExpr>::new(42f64.into()).into(),
             ]
         );
-        let mut frame1 = Frame::extend(
-            frame.clone(),
-            ["foo", "baz", "lmbd"],
+        let mut environment1 = Environment::extend(
+            environment.clone(),
+            ["foo", "baz"],
             [
                 Rc::<SExpr>::new(2i64.into()).into(),
                 Rc::<SExpr>::new(28i64.into()).into(),
             ],
         );
-        let args = vec!["arg1".to_owned(), "arg2".to_owned()];
-        let body = ProgramParser::new().parse("(* (+ arg1 arg2) 11)").unwrap();
-        let lmbd = Variable::Lambda(
-            args.as_slice(),
-            body[0].clone(),
-            Rc::downgrade(&frame1)
-        );
-        Frame::bind(frame1.clone(), "lmbd", lmbd);
-        frame1 = Frame::extend(
-            frame1,
+        let lmbd: SExpr = vec![
+            "quax".into(),
+            vec!["arg1".into(), "arg2".into()].into(),
+            environment1.clone().into(),
+        ].into();
+        Environment::bind(environment1.clone(), "lmbd", Rc::new(lmbd.clone()));
+        environment1 = Environment::extend(
+            environment1,
             ["==", "<=>"],
             [
                 Rc::<SExpr>::new(2222i64.into()).into(),
                 Rc::<SExpr>::new(2828i64.into()).into(),
             ],
         );
-        let frame2 = Frame::extend(frame.clone(), [], []);
-        Frame::bind(frame2.clone(), "x", Rc::<SExpr>::new(123i64.into()).into());
-        Frame::bind(frame2.clone(), "x", Rc::<SExpr>::new(122i64.into()).into());
-        assert_eq!(EnvError::UnbindVariable("a"), Frame::lookup(frame2.clone(), "a").unwrap_err());
-        if let Variable::SExpr(sexpr) = Frame::lookup(frame2.clone(), "foo").unwrap() {
-            assert_eq!(sexpr, Rc::new(SExpr::Atom(Atom::Int(2), 0, 0)))
-        } else {
-            panic!("Variable must be expression not a lambda")
-        };
-        if let Variable::SExpr(sexpr) = Frame::lookup(frame2.clone(), "x").unwrap() {
-            assert_eq!(sexpr, Rc::new(SExpr::Atom(Atom::Int(122), 0, 0)))
-        } else {
-            panic!("Variable must be expression not a lambda")
-        };
-        if let Variable::Lambda(a, b, w) = Frame::lookup(frame1.clone(), "lmbd").unwrap() {
-            assert_eq!(args, a);
-            assert_eq!(body[0].clone(), b);
-            let _ = Weak::upgrade(&w).unwrap();
-        } else {
-            panic!("Variable must be lambda not an expression");
-        }
-        Frame::set(frame1.clone(), "bar", Rc::<SExpr>::new("hello world!".into()).into()).unwrap();
-        if let Variable::SExpr(sexpr) = Frame::lookup(frame2.clone(), "bar").unwrap() {
-            assert_eq!(sexpr, Rc::new(SExpr::Atom(Atom::String("hello world!".to_owned()), 0, 0)))
-        } else {
-            panic!("Variable must be expression not a lambda")
-        };
+        let environment2 = Environment::extend(environment.clone(), [], []);
+        Environment::bind(environment2.clone(), "x", Rc::<SExpr>::new(123i64.into()).into());
+        Environment::bind(environment2.clone(), "x", Rc::<SExpr>::new(122i64.into()).into());
+        assert_eq!(SExpr::Exception(Exception::new("Symbol 'a' is unbind".to_owned())), *Environment::lookup(environment2.clone(), "a"));
+        assert_eq!(SExpr::Atom(Atom::Int(2), None), *Environment::lookup(environment2.clone(), "foo"));
+        assert_eq!(SExpr::Atom(Atom::Int(122), None), *Environment::lookup(environment2.clone(), "x"));
+        assert_eq!(lmbd, *Environment::lookup(environment1.clone(), "lmbd"));
+        assert_eq!(SExpr::Atom(Atom::Nil, None), *Environment::set(environment1.clone(), "bar", Rc::<SExpr>::new("hello world!".to_string().into()).into()));
+        assert_eq!(SExpr::Atom(Atom::String("hello world!".to_owned()), None), *Environment::lookup(environment2.clone(), "bar"))
     }
 }

@@ -1,7 +1,7 @@
 use std::rc::Rc;
 use std::str::FromStr;
 use lalrpop_util::ParseError;
-use crate::ast::{Atom, SExpr, QLispParseError, Symbol};
+use crate::ast::{Atom, SExpr, QLispParseError};
 
 grammar;
 
@@ -23,7 +23,7 @@ match {
     r"[^[:space:]\(\)]+" => ID,
 }
 
-Atom: Atom = {
+Atom: Atom<'input> = {
     <l:@L><i:INT><r:@R> =>? Ok(Atom::Int(i64::from_str(i).map_err(
         |_| ParseError::User {
             error: QLispParseError::CannotParseInt(l, r)
@@ -35,25 +35,25 @@ Atom: Atom = {
         }
     )?)),
     <s:STR> => Atom::String(s.trim_matches('\"').to_owned()),
-    <id:ID> => Atom::Symbol(Symbol(id.to_owned())),
+    <id:ID> => Atom::Symbol(id),
 };
 
-SExpr: SExpr = {
+SExpr: SExpr<'input> = {
     <l:@L> LPAREN <s1:SExpr> DOT <s2:SExpr> RPAREN <r:@R> => {
-        SExpr::Pair(Rc::new(s1), Rc::new(s2), l , r)
+        SExpr::Pair(Rc::new(s1), Rc::new(s2), Some((l , r)))
     },
-    <l:@L> <atom:Atom> <r:@R> => SExpr::Atom(atom, l, r),
+    <l:@L> <atom:Atom> <r:@R> => SExpr::Atom(atom, Some((l , r))),
     <l:@L> LPAREN <sexprs:SExpr*> RPAREN <r:@R> => {
-        SExpr::List(sexprs.into_iter().map(|x| Rc::new(x)).collect::<Vec<_>>(), l, r)
+        SExpr::List(sexprs.into_iter().map(|x| Rc::new(x)).collect::<Vec<_>>(), Some((l , r)))
     },
     <l:@L> QUOTE <sexpr:SExpr> <r:@R> => {
-        let quote = Rc::new(SExpr::Atom(Atom::Symbol(Symbol("quote".to_string())), l, r));
+        let quote = Rc::new(SExpr::Atom(Atom::Symbol("quote"), Some((l , r))));
         let sexpr = Rc::new(sexpr);
-        SExpr::List(vec![quote, sexpr], l, r)
+        SExpr::List(vec![quote, sexpr], Some((l, r)))
     }
 }
 
-pub Program: Vec<Rc<SExpr>> = {
+pub Program: Vec<Rc<SExpr<'input>>> = {
     <l:@L> <sexprs:SExpr*> <r:@R> => {
         sexprs.into_iter().map(|x| Rc::new(x)).collect::<Vec<_>>()
     },
