@@ -1,7 +1,7 @@
-use std::rc::Rc;
 use std::str::FromStr;
+use std::rc::Rc;
 use lalrpop_util::ParseError;
-use crate::ast::{Atom, SExpr, QLispParseError};
+use crate::ast::{SExpr, QLispParseError};
 
 grammar;
 
@@ -20,37 +20,38 @@ match {
     r";[^\n\r]*[\n\r]*" => { },
     r"`" => QUOTE
 } else {
-    r"[^[:space:]\(\)]+" => ID,
+    r"[^[:space:]\(\)]+" => SY,
 }
 
-Atom: Atom<'input> = {
-    <l:@L><i:INT><r:@R> =>? Ok(Atom::Int(i64::from_str(i).map_err(
+SExpr: SExpr<'input> = {
+    // pair
+    <l:@L> LPAREN <s1:SExpr> DOT <s2:SExpr> RPAREN <r:@R> => {
+        SExpr::pair(s1, s2, Some((l , r)))
+    },
+    // list
+    <l:@L> LPAREN <sexprs:SExpr*> RPAREN <r:@R> => {
+        SExpr::list(sexprs.into_iter().collect::<Vec<_>>(), Some((l , r)))
+    },
+    // quoted
+    <l:@L> QUOTE <sexpr:SExpr> <r:@R> => {
+        sexpr.quote(Some((l, r)))
+    },
+    // int
+    <l:@L> <i:INT> <r:@R> =>? Ok(SExpr::int(i64::from_str(i).map_err(
         |_| ParseError::User {
             error: QLispParseError::CannotParseInt(l, r)
         }
-    )?)),
-    <l:@L><f:FLOAT><r:@R> =>? Ok(Atom::Float(f64::from_str(f).map_err(
+    )?, Some((l, r)))),
+    // float
+    <l:@L> <f:FLOAT> <r:@R> =>? Ok(SExpr::float(f64::from_str(f).map_err(
         |_| ParseError::User {
             error: QLispParseError::CannotParseFloat(l, r)
         }
-    )?)),
-    <s:STR> => Atom::String(s.trim_matches('\"').to_owned()),
-    <id:ID> => Atom::Symbol(id),
-};
-
-SExpr: SExpr<'input> = {
-    <l:@L> LPAREN <s1:SExpr> DOT <s2:SExpr> RPAREN <r:@R> => {
-        SExpr::Pair(Rc::new(s1), Rc::new(s2), Some((l , r)))
-    },
-    <l:@L> <atom:Atom> <r:@R> => SExpr::Atom(atom, Some((l , r))),
-    <l:@L> LPAREN <sexprs:SExpr*> RPAREN <r:@R> => {
-        SExpr::List(sexprs.into_iter().map(|x| Rc::new(x)).collect::<Vec<_>>(), Some((l , r)))
-    },
-    <l:@L> QUOTE <sexpr:SExpr> <r:@R> => {
-        let quote = Rc::new(SExpr::Atom(Atom::Symbol("quote"), Some((l , r))));
-        let sexpr = Rc::new(sexpr);
-        SExpr::List(vec![quote, sexpr], Some((l, r)))
-    }
+    )?, Some((l, r)))),
+    // string
+    <l:@L> <s:STR> <r:@R> => SExpr::string(s.trim_matches('\"').to_owned(), Some((l, r))),
+    // symbol
+    <l:@L> <sy:SY> <r:@R> => SExpr::symbol(sy, Some((l, r))),
 }
 
 pub Program: Vec<Rc<SExpr<'input>>> = {
